@@ -280,7 +280,7 @@ if auswahl:
         quote = übergabe.suche.quotes[0]
         unternehmen = quote.get("longname") or quote.get("shortname") or übergabe.ticker
         st.write(f"Unternehmen: {unternehmen}")
-        if übergabe.ist_aktie:
+        if übergabe.ist_aktie or übergabe.ist_etf:
             st.metric("letzter Preis", f"{übergabe.preis:.2f} {übergabe.währung}")
         st.write("**Kursverlauf der letzten 12 Monate:**")
         st.line_chart(übergabe.historie)
