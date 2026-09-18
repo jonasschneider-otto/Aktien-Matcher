@@ -1106,6 +1106,18 @@ wheels = [
 ]
 
 [[package]]
+name = "st-copy"
+version = "2.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "streamlit" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ba/61/3249c3648034a9ba0382d823d7da5186b0a241420efe9e6edf674c15e4d0/st_copy-2.0.0.tar.gz", hash = "sha256:3810e5f380a8649d966ad9b7755fdb559ecf9a093e12449c979c15e30e1d7de2", size = 8053, upload-time = "2026-06-17T22:46:24.215Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0c/9c/59939ae5517bf6e7f787c02e68866b7d5db0f063cc707fed0508cf2cba0a/st_copy-2.0.0-py3-none-any.whl", hash = "sha256:dd6ef78040c257a5070bf10837ffadb930b3039d1c838a57fc9238711986736a", size = 7371, upload-time = "2026-06-17T22:46:23.085Z" },
+]
+
+[[package]]
 name = "starlette"
 version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1315,6 +1327,7 @@ dependencies = [
     { name = "pandas" },
     { name = "pandas-stubs" },
     { name = "requests" },
+    { name = "st-copy" },
     { name = "streamlit" },
     { name = "streamlit-searchbox" },
     { name = "yfinance" },
@@ -1327,6 +1340,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=3.0.5" },
     { name = "pandas-stubs", specifier = "~=3.0.5" },
     { name = "requests", specifier = ">=2.34.2" },
+    { name = "st-copy", specifier = ">=2.0.0" },
     { name = "streamlit", specifier = ">=1.64.0" },
     { name = "streamlit-searchbox", specifier = ">=0.1.24" },
     { name = "yfinance", specifier = ">=1.7.0" },
