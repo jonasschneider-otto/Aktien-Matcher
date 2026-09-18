@@ -12,4 +12,5 @@ dependencies = [
     "streamlit>=1.64.0",
     "streamlit-searchbox>=0.1.24",
     "yfinance>=1.7.0",
+    "st-copy>=0.1.0",
 ]

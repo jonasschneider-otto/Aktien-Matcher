@@ -17,9 +17,9 @@ class get_data:
         self.ist_aktie = quote.get("quoteType") in ("EQUITY", "STOCK")
         self.ist_derivat = quote.get("quoteType") in ("OPTION", "FUTURE", "FUTURES")
         self.aktie = yf.Ticker(self.ticker)
-        self.währung = self.aktie.fast_info['currency']
-        self.preis = converter.convert( self.aktie.fast_info['last_price'], self.währung, 'EUR') 
         
+        self.währung = "GBP" if self.aktie.fast_info['currency'] == "GBp" else self.aktie.fast_info['currency']
+        self.preis = converter.convert(self.aktie.fast_info['last_price'] / 100 if self.aktie.fast_info['currency'] == "GBp" else self.aktie.fast_info['last_price'], self.währung, 'EUR')
         self.währung = "EUR"
         
         self.historie = self.aktie.history(period="1y")[['Close']]

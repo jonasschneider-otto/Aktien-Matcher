@@ -1340,7 +1340,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=3.0.5" },
     { name = "pandas-stubs", specifier = "~=3.0.5" },
     { name = "requests", specifier = ">=2.34.2" },
-    { name = "st-copy", specifier = ">=2.0.0" },
+    { name = "st-copy", specifier = ">=0.1.0" },
     { name = "streamlit", specifier = ">=1.64.0" },
     { name = "streamlit-searchbox", specifier = ">=0.1.24" },
     { name = "yfinance", specifier = ">=1.7.0" },

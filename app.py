@@ -159,21 +159,50 @@ firmenname = st_searchbox(
     placeholder="Aktie suchen (z.B. Apple / AAPL)",
     key="stock_search"
 )
+# Gucken ob die Seite über einen geteilten Link geöffnet wurde
+link_ticker = None
+if "ticker" in st.query_params:
+    link_ticker = st.query_params["ticker"]
+
+link_produkte = []
+for key in ["p0", "p1", "p2", "p3"]:
+    if key in st.query_params:
+        link_produkte.append(st.query_params[key])
 
 st.set_page_config(page_title="OTTO Aktien-Matcher", page_icon="🔴", layout="centered")
 
 
-if firmenname:
-    übergabe = get_data(firmenname)
+auswahl = firmenname
+if not auswahl:
+    auswahl = link_ticker
+
+if auswahl:
+    übergabe = get_data(auswahl)
+        # Gucken ob wir im Link-Modus sind
+    link_modus = False
+    if not firmenname:
+        if link_ticker != None:
+            if len(link_produkte) > 0:
+                link_modus = True
+
+    übergabe = get_data(auswahl)
     aktien_wert = übergabe.preis
-    haupt_row = con.execute(
-        "SELECT suchbegriff, titel, marke, preis, old_price, currency, bild_url, produkt_url, "
-        "bewertung, anzahl_bewertungen, verfuegbarkeit, sku, gtin "
-        "FROM produkte WHERE preis IS NOT NULL AND preis > 0 AND preis <= ? "
-        "AND scraped_date = (SELECT MAX(scraped_date) FROM produkte) "
-        "ORDER BY preis DESC LIMIT 1",
-        (aktien_wert,),
-    ).fetchone()
+    if link_modus:
+        haupt_row = con.execute(
+            "SELECT suchbegriff, titel, marke, preis, old_price, currency, bild_url, produkt_url, "
+            "bewertung, anzahl_bewertungen, verfuegbarkeit, sku, gtin "
+            "FROM produkte WHERE produkt_url = ? ",
+            (link_produkte[0],),
+        ).fetchone()
+    else:
+        haupt_row = con.execute(
+            "SELECT suchbegriff, titel, marke, preis, old_price, currency, bild_url, produkt_url, "
+            "bewertung, anzahl_bewertungen, verfuegbarkeit, sku, gtin "
+            "FROM produkte WHERE preis IS NOT NULL AND preis > 0 AND preis <= ? "
+            "AND scraped_date = (SELECT MAX(scraped_date) FROM produkte) "
+            "ORDER BY preis DESC LIMIT 1",
+            (aktien_wert,),
+        ).fetchone()
     if haupt_row is None:
         st.error("Keine Produkte unter dem Aktienpreis in der Datenbank gefunden.")
         st.stop()
@@ -195,9 +224,30 @@ if firmenname:
         f"### Du kannst dir anstelle der Aktie auch 1x {kurzname(haupt.title, haupt.brand)} kaufen. "
         f"Und du hättest sogar noch {eur(rest)} über!"
     )
-
+    if link_modus:
+        alternativen = []
+        rest_urls = link_produkte[1:]
+        if len(rest_urls) > 3:
+            rest_urls = rest_urls[0:3]
+        for u in rest_urls:
+            zeile = con.execute(
+                "SELECT suchbegriff, titel, marke, preis, old_price, currency, bild_url, produkt_url, "
+                "bewertung, anzahl_bewertungen, verfuegbarkeit, sku, gtin "
+                "FROM produkte WHERE produkt_url = ? ",
+                (u,),
+            ).fetchone()
+            if zeile != None:
+                preis = zeile["preis"]
+                anzahl = 2
+                if preis != None:
+                    if preis > 0:
+                        anzahl = int(aktien_wert // preis)
+                        if anzahl < 2:
+                            anzahl = 2
+                alternativen.append((_map(zeile), anzahl))
+    else:
     # Alternativen mit Vielfachen (mind. 2x leistbar), ohne das Hauptprodukt
-    alt_rows = con.execute(
+     alt_rows = con.execute(
         "SELECT suchbegriff, titel, marke, preis, old_price, currency, bild_url, produkt_url, "
         "bewertung, anzahl_bewertungen, verfuegbarkeit, sku, gtin "
         "FROM produkte WHERE preis IS NOT NULL AND preis > 0 AND preis <= ? "
@@ -205,10 +255,10 @@ if firmenname:
         "AND scraped_date = (SELECT MAX(scraped_date) FROM produkte) "
         "ORDER BY preis DESC LIMIT 30",
         (aktien_wert / 2, haupt.product_url),
-    ).fetchall()
-    alternativen = []
-    gesehen = {haupt_row["suchbegriff"]}
-    for row in alt_rows:
+     ).fetchall()
+     alternativen = []
+     gesehen = {haupt_row["suchbegriff"]}
+     for row in alt_rows:
         if row["suchbegriff"] not in gesehen:
             alternativen.append((_map(row), max(2, int(aktien_wert // row["preis"]))))
             gesehen.add(row["suchbegriff"])
@@ -296,10 +346,9 @@ if firmenname:
             with col:
                 st.write(f"**{n}x {kurzname(p.title, p.brand)}** ({eur(p.price)} / Stück)")
                 produktkarte(p)
-    _params = {"ticker": firmenname, "p0": haupt.product_url}
+    _params = {"ticker": auswahl, "p0": haupt.product_url}
     for _i, (_p, _n) in enumerate(alternativen[:3], start=1):
         _params[f"p{_i}"] = _p.product_url
     share_link = "https://otto-aktien-matcher.streamlit.app/?" + urlencode(_params)
     copy_button(share_link, tooltip="Ergebnis-Link kopieren", copied_label="Kopiert! ✅", icon="st")
     st.code(share_link)       
-             
