@@ -23,6 +23,7 @@ class get_data:
         self.währung = "EUR"
         
         self.historie = self.aktie.history(period="1y")[['Close']]
+        
 
         if self.ist_aktie:
             self.marktkapitalisierung = converter.convert(self.aktie.fast_info['market_cap'], self.währung, 'EUR')
