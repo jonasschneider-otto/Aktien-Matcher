@@ -124,29 +124,17 @@ The SQLite database (`otto_produkte.db`) contains a `produkte` table with:
 - Compact financial notation (e.g., "1,2 Mrd. EUR" for billions)
 - Star ratings with half-stars (★★★½)
 
-## 🤝 Contributing
-
-Contributions welcome! Areas for improvement:
-- Add more e-commerce platforms (Amazon.de, eBay, etc.)
-- Support international markets
-- Improve scraper performance
-- Add cryptocurrency support
-- Extend to other financial instruments
-
 ## ⚠️ Legal & Disclaimer
 
 - **OTTO.de Terms**: This project respects OTTO.de's `robots.txt`. Scraping is done responsibly with rate limiting.
 - **Derivatives Warning**: The "GIG" easter egg is a joke – derivatives and leveraged products are high-risk financial instruments.
 - **No Financial Advice**: This is a fun educational tool, not financial advice.
 
-## 📝 License
-
-[Specify your license here – e.g., MIT, GPL, Apache 2.0]
-
 ## 👤 Author
 
-**Luca Winter Otto** – [GitHub](https://github.com/lucawinterottode)
-
+**Luca Winter** – [GitHub](https://github.com/lucawinterottode)
+**Maxim Helmer** – [GitHub](https://github.com/maximhelmerotto)
+**Jonas Schneider** – [GitHub](https://github.com/jonasschneider-otto)
 ---
 
 **Enjoy matching stocks to shopping carts!** 🛒📈
