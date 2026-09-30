@@ -85,7 +85,7 @@ This script:
 ## 🌐 Deployment
 
 The app is deployed on [Streamlit Cloud](https://streamlit.io/cloud):
-- **Live App**: https://otto-aktien-matcher.streamlit.app/
+- **Live App**: https://otto-aktien-matcher.streamlit.app/ (You might have to wake it back up, just press the button and wait. It should take less then a minute)
 - Zero-copy deployment from GitHub
 
 To deploy your own version:
