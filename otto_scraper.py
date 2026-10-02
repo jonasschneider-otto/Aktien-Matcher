@@ -13,10 +13,13 @@ import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from threading import local
 from urllib.parse import quote_plus, urljoin
 
 import requests
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 BASE_URL = "https://www.otto.de"
 HEADERS = {
@@ -28,6 +31,29 @@ HEADERS = {
     "Accept-Language": "de-DE,de;q=0.9",
     "Accept": "text/html,application/xhtml+xml",
 }
+_THREAD_LOCAL = local()
+
+
+def _http_session() -> requests.Session:
+    session = getattr(_THREAD_LOCAL, "session", None)
+    if session is None:
+        retry = Retry(
+            total=3,
+            connect=3,
+            read=3,
+            status=3,
+            backoff_factor=0.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset({"GET"}),
+            respect_retry_after_header=True,
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        session = requests.Session()
+        session.headers.update(HEADERS)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        _THREAD_LOCAL.session = session
+    return session
 
 
 @dataclass
@@ -46,13 +72,20 @@ class OttoProduct:
     availability: str = ""
     sku: str = ""
     gtin: str = ""
+    category: str = ""
     details: dict = field(default_factory=dict)
 
     @property
     def display_price(self) -> str:
         if self.price is None:
             return "Preis auf Anfrage"
-        return f"{self.price:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+        symbol = "€" if self.currency == "EUR" else self.currency
+        return (
+            f"{self.price:,.2f} {symbol}"
+            .replace(",", "X")
+            .replace(".", ",")
+            .replace("X", ".")
+        )
 
     @property
     def discount_pct(self) -> int | None:
@@ -113,6 +146,8 @@ def _safe_details(stub: OttoProduct) -> OttoProduct | None:
             full.title = stub.title
         if not full.sku:
             full.sku = stub.sku
+        if not full.category:
+            full.category = stub.category
         return full
     except Exception:
         return stub if stub.title and stub.product_url else None
@@ -126,7 +161,7 @@ def search_otto(query: str, limit: int = 12) -> list[OttoProduct]:
     Produkt-Detailseiten (JSON-LD) angereichert.
     """
     url = f"{BASE_URL}/suche/{quote_plus(query.strip())}/"
-    resp = requests.get(url, headers=HEADERS, timeout=20)
+    resp = _http_session().get(url, timeout=(5, 20))
     resp.raise_for_status()
     # content (bytes) statt text: BeautifulSoup wertet dann <meta charset="utf-8">
     # selbst aus, sonst wird € falsch dekodiert und die Preis-Regex greift nicht.
@@ -160,6 +195,7 @@ def search_otto(query: str, limit: int = 12) -> list[OttoProduct]:
                     title=title,
                     product_url=full_url,
                     sku=article.get("data-product-id", ""),
+                    category=article.get("data-category", ""),
                 )
             )
             continue
@@ -214,6 +250,7 @@ def search_otto(query: str, limit: int = 12) -> list[OttoProduct]:
                 review_count=review_count,
                 availability=availability,
                 sku=article.get("data-product-id", ""),
+                category=article.get("data-category", ""),
             )
         )
 
@@ -231,7 +268,7 @@ def get_product_details(product_url: str) -> OttoProduct:
     """Lädt eine OTTO-Produktseite (/p/...) und parst das JSON-LD."""
     if product_url.startswith("/"):
         product_url = urljoin(BASE_URL, product_url)
-    resp = requests.get(product_url, headers=HEADERS, timeout=20)
+    resp = _http_session().get(product_url, timeout=(5, 20))
     resp.raise_for_status()
     soup = BeautifulSoup(resp.content, "html.parser")
 
@@ -247,6 +284,13 @@ def get_product_details(product_url: str) -> OttoProduct:
 
     brand = data.get("brand", {})
     brand_name = brand.get("name") if isinstance(brand, dict) else str(brand or "")
+    raw_category = data.get("category", "")
+    if isinstance(raw_category, (list, tuple)):
+        category = " / ".join(str(value) for value in raw_category if value)
+    elif isinstance(raw_category, dict):
+        category = str(raw_category.get("name", ""))
+    else:
+        category = str(raw_category or "")
 
     images = data.get("image", [])
     if isinstance(images, str):
@@ -254,9 +298,12 @@ def get_product_details(product_url: str) -> OttoProduct:
     image_url = (images[0] if images else "").replace("&amp;", "&")
 
     offers = data.get("offers", {}) or {}
+    if isinstance(offers, list):
+        offers = next((offer for offer in offers if isinstance(offer, dict)), {})
     price = float(offers.get("price")) if offers.get("price") else None
     currency = offers.get("priceCurrency", "EUR") or "EUR"
     offer_url = offers.get("url", product_url)
+    availability = str(offers.get("availability", "") or "")
 
     agg = data.get("aggregateRating", {}) or {}
     rating = float(agg.get("ratingValue")) if agg.get("ratingValue") else None
@@ -276,8 +323,10 @@ def get_product_details(product_url: str) -> OttoProduct:
         product_url=offer_url or product_url,
         rating=rating,
         review_count=review_count,
+        availability=availability.rsplit("/", 1)[-1],
         sku=str(data.get("sku", "")),
         gtin=str(data.get("gtin13", "")),
+        category=category,
         details=details,
     )
 

@@ -1,0 +1,1 @@
+# One OTTO product URL per line. Required products are refreshed directly each run.

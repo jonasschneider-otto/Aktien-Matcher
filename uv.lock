@@ -1330,6 +1330,7 @@ dependencies = [
     { name = "st-copy" },
     { name = "streamlit" },
     { name = "streamlit-searchbox" },
+    { name = "urllib3" },
     { name = "yfinance" },
 ]
 
@@ -1344,6 +1345,7 @@ requires-dist = [
     { name = "st-copy", specifier = ">=2.0.0" },
     { name = "streamlit", specifier = ">=1.64.0" },
     { name = "streamlit-searchbox", specifier = ">=0.1.24" },
+    { name = "urllib3", specifier = ">=2.0,<3" },
     { name = "yfinance", specifier = ">=1.7.0" },
 ]
 

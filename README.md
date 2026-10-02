@@ -80,7 +80,9 @@ python daily_scrape.py
 This script:
 - Fetches products from OTTO.de based on search terms in `randomprodukte.txt`
 - Parses product details (price, ratings, availability, images)
-- Stores data in `otto_produkte.db` SQLite database
+- Stores one product record plus a timestamped observation for each scrape
+- Orders search terms using recent category, brand, price-band, novelty, and duplicate metrics
+- Prints per-run category, price-band, brand, and data-quality coverage
 
 ## 🌐 Deployment
 
@@ -95,16 +97,32 @@ To deploy your own version:
 
 ## 📊 Database Schema
 
-The SQLite database (`otto_produkte.db`) contains a `produkte` table with:
-- `suchbegriff` – Search query used
-- `titel`, `marke` – Product title and brand
-- `preis`, `old_price`, `currency` – Current and original prices
-- `bild_url` – Product image
-- `produkt_url` – OTTO.de product link
-- `bewertung`, `anzahl_bewertungen` – Star rating and review count
-- `verfuegbarkeit` – Availability status
-- `sku`, `gtin` – Product identifiers
-- `scraped_date` – When the data was collected
+The SQLite database (`otto_produkte.db`) stores the normalized product catalog in
+`products`, price and availability history in `product_observations`, and scraper
+execution status in `scrape_runs`. The first database initialization migrates the
+existing `produkte` rows into the new tables without deleting the legacy table.
+Products are keyed by a canonical product URL; individual observations retain
+their scrape time and search term. Recognized OTTO categories take precedence;
+conservative title rules are the fallback, and unclassified products remain
+marked `Unbekannt`.
+Before a schema upgrade, a file-backed database gets a versioned
+`otto_produkte.db.pre-vN.bak` backup; the legacy table remains available for
+rollback until explicitly removed.
+
+Product matching accepts observations from successful or legacy runs in the last
+24 hours. If there was no successful run in that window, it falls back to the latest
+successful run and shows a notice in the app. Comparisons currently use EUR
+products only; Yahoo stock prices are converted to EUR before matching.
+
+The configured price bands use inclusive lower and exclusive upper bounds:
+`<10`, `10–<25`, `25–<50`, `50–<100`, `100–<250`, `250–<500`,
+`500–<1,000`, `1,000–<2,500`, `2,500–<5,000`, `5,000–<10,000`, and `≥10,000 EUR`.
+Run coverage and per-search-term contributions are retained in
+`scrape_run_coverage`, `scrape_run_summaries`, and `search_term_metrics`.
+
+`pflichtprodukte.txt` is intentionally empty by default. Add one OTTO product
+URL per line to have the daily scraper refresh it directly and report its latest
+availability result in the app.
 
 ## 🎨 Features in Detail
 
@@ -114,10 +132,11 @@ The SQLite database (`otto_produkte.db`) contains a `produkte` table with:
 - Derivative support: Shows leverage and "GIG" (Gehebelt ist Geil) easter egg 🎵
 
 ### Product Matching Algorithm
-1. Find the most expensive OTTO product ≤ stock price (best main match)
-2. Find 3 alternative products at ≤ half the stock price
+1. Find the most expensive current EUR OTTO product ≤ stock price (best main match)
+2. Select up to 3 alternatives at ≤ half the stock price, preferring new categories,
+   brands, and price bands while avoiding strongly similar titles
 3. Calculate how many multiples of each product you can afford
-4. Filter out duplicates by search term
+4. Skip products with strongly similar titles
 
 ### Custom Formatting
 - German number format (€199,99 instead of €199.99)

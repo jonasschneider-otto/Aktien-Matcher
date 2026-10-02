@@ -1,7 +1,7 @@
 import ast
 import base64
-import random
-import sqlite3
+from pathlib import Path
+
 import streamlit as st
 from yahoo_anbindung import get_data
 from streamlit_searchbox import st_searchbox
@@ -9,12 +9,22 @@ import html as _html
 import yfinance as yf
 import re
 from otto_scraper import OttoProduct
+from otto_database import (
+    connect_database,
+    initialize_database,
+    latest_product_by_url,
+    latest_products,
+    latest_required_product_checks,
+    using_stale_fallback,
+)
+from otto_selection import select_diverse_alternatives
 from urllib.parse import urlencode
 from st_copy import copy_button
 
 
-con = sqlite3.connect("otto_produkte.db")
-con.row_factory = sqlite3.Row
+con = connect_database(Path(__file__).resolve().with_name("otto_produkte.db"))
+initialize_database(con)
+st.set_page_config(page_title="OTTO Aktien-Matcher", page_icon="🔴", layout="centered")
 
 with open('randomprodukte.txt', 'r', encoding='utf-8') as datei:
     text = datei.read()
@@ -82,10 +92,16 @@ def stars(rating: float | None) -> str:
     return "★" * full + half + f" ({rating})"
 
 
-def eur(value: float | None) -> str:
+def eur(value: float | None, currency: str = "EUR") -> str:
     if value is None:
         return ""
-    return f"{value:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+    symbol = "€" if currency == "EUR" else currency
+    return (
+        f"{value:,.2f} {symbol}"
+        .replace(",", "X")
+        .replace(".", ",")
+        .replace("X", ".")
+    )
 
 
 def img_html(image_url: str) -> str:
@@ -127,14 +143,19 @@ def produktkarte(p: OttoProduct) -> None:
     """Rendert eine OTTO-Produktkarte inkl. Link-Button."""
     offer = "&nbsp;"
     if p.old_price and p.discount_pct:
-        offer = f'<span class="otto-badge">-{p.discount_pct} %</span><span class="otto-old">UVP {eur(p.old_price)}</span>'
+        offer = (
+            f'<span class="otto-badge">-{p.discount_pct} %</span>'
+            f'<span class="otto-old">UVP {eur(p.old_price, p.currency)}</span>'
+        )
     reviews = f" · {p.review_count} Bewertungen" if p.review_count else ""
+    category = _html.escape(p.category) if p.category else ""
     st.markdown(
         f"""
             <div class="otto-card">
               {img_html(p.image_url)}
               <div class="otto-brand">{_html.escape(p.brand) or "&nbsp;"}</div>
               <div class="otto-title" style="color:black">{_html.escape(p.title)}</div>
+              <div class="otto-category">{category}</div>
               <div class="otto-offer">{offer}</div>
               <div class="otto-price">{p.display_price}</div>
               <div class="otto-meta">⭐ {stars(p.rating)}{reviews}</div>
@@ -161,6 +182,23 @@ with oben_rechts:
 
 st.title("Otto Aktien-Matcher")
 
+required_checks = latest_required_product_checks(con)
+if required_checks:
+    with st.expander("Pflichtprodukte überwachen"):
+        status_labels = {
+            "found": "Gefunden",
+            "unavailable": "Nicht verfügbar",
+            "unknown": "Verfügbarkeit unbekannt",
+            "failed": "Abruf fehlgeschlagen",
+        }
+        for check in required_checks:
+            status = status_labels.get(check["status"], "Noch nicht geprüft")
+            checked_at = check["checked_at"] or "noch kein Prüflauf"
+            st.write(f"**{check['label']}** — {status} — {checked_at}")
+            if check["error_message"]:
+                st.caption(check["error_message"])
+            st.link_button("Bei OTTO ansehen ↗", check["canonical_url"])
+
 # Das interaktive Suchfeld einbinden
 firmenname = st_searchbox(
     search_stocks,
@@ -176,9 +214,6 @@ link_produkte = []
 for key in ["p0", "p1", "p2", "p3"]:
     if key in st.query_params:
         link_produkte.append(st.query_params[key])
-
-st.set_page_config(page_title="OTTO Aktien-Matcher", page_icon="🔴", layout="centered")
-
 
 auswahl = firmenname
 if not auswahl:
@@ -196,23 +231,23 @@ if auswahl:
     übergabe = get_data(auswahl)
     aktien_wert = übergabe.preis
     if link_modus:
-        haupt_row = con.execute(
-            "SELECT suchbegriff, titel, marke, preis, old_price, currency, bild_url, produkt_url, "
-            "bewertung, anzahl_bewertungen, verfuegbarkeit, sku, gtin "
-            "FROM produkte WHERE produkt_url = ? ",
-            (link_produkte[0],),
-        ).fetchone()
+        haupt_row = latest_product_by_url(con, link_produkte[0])
+        if haupt_row is None:
+            st.error("Das geteilte Produkt hat keine aktuelle, gültige Preisbeobachtung.")
+            st.stop()
     else:
-        haupt_row = con.execute(
-            "SELECT suchbegriff, titel, marke, preis, old_price, currency, bild_url, produkt_url, "
-            "bewertung, anzahl_bewertungen, verfuegbarkeit, sku, gtin "
-            "FROM produkte WHERE preis IS NOT NULL AND preis > 0 AND preis <= ? "
-            "AND scraped_date = (SELECT MAX(scraped_date) FROM produkte) "
-            "ORDER BY preis DESC LIMIT 1",
-            (aktien_wert,),
-        ).fetchone()
+        haupt_produkte = latest_products(con, max_price=aktien_wert, limit=1)
+        haupt_row = haupt_produkte[0] if haupt_produkte else None
+        if using_stale_fallback(con):
+            st.info(
+                "Kein erfolgreicher Scrape innerhalb der letzten 24 Stunden. "
+                "Es werden Daten aus dem letzten erfolgreichen Lauf verwendet."
+            )
     if haupt_row is None:
         st.error("Keine Produkte unter dem Aktienpreis in der Datenbank gefunden.")
+        st.stop()
+    if haupt_row["preis"] is None or haupt_row["preis"] <= 0:
+        st.error("Das verlinkte Produkt hat aktuell keinen gültigen Preis.")
         st.stop()
 
     def _map(row):
@@ -222,10 +257,13 @@ if auswahl:
             image_url=row["bild_url"] or "", product_url=row["produkt_url"],
             rating=row["bewertung"], review_count=row["anzahl_bewertungen"],
             availability=row["verfuegbarkeit"] or "", sku=row["sku"] or "",
-            gtin=row["gtin"] or "",
+            gtin=row["gtin"] or "", category=row["category"] or "",
         )
 
     haupt = _map(haupt_row)
+    if haupt_row["currency"] != "EUR":
+        st.error("Produktpreise außerhalb von EUR können derzeit nicht abgeglichen werden.")
+        st.stop()
     rest = round(aktien_wert - haupt.price, 2)
 
     st.write(
@@ -234,44 +272,29 @@ if auswahl:
     )
     if link_modus:
         alternativen = []
-        rest_urls = link_produkte[1:]
-        if len(rest_urls) > 3:
-            rest_urls = rest_urls[0:3]
-        for u in rest_urls:
-            zeile = con.execute(
-                "SELECT suchbegriff, titel, marke, preis, old_price, currency, bild_url, produkt_url, "
-                "bewertung, anzahl_bewertungen, verfuegbarkeit, sku, gtin "
-                "FROM produkte WHERE produkt_url = ? ",
-                (u,),
-            ).fetchone()
-            if zeile != None:
-                preis = zeile["preis"]
-                anzahl = 2
-                if preis != None:
-                    if preis > 0:
-                        anzahl = int(aktien_wert // preis)
-                        if anzahl < 2:
-                            anzahl = 2
-                alternativen.append((_map(zeile), anzahl))
+        for url in link_produkte[1:4]:
+            zeile = latest_product_by_url(con, url)
+            if zeile is None:
+                continue
+            if zeile["currency"] != "EUR":
+                st.error("Produktpreise außerhalb von EUR können derzeit nicht abgeglichen werden.")
+                st.stop()
+            preis = zeile["preis"]
+            if preis is None or preis <= 0:
+                continue
+            anzahl = max(2, int(aktien_wert // preis))
+            alternativen.append((_map(zeile), anzahl))
     else:
-    # Alternativen mit Vielfachen (mind. 2x leistbar), ohne das Hauptprodukt
-     alt_rows = con.execute(
-        "SELECT suchbegriff, titel, marke, preis, old_price, currency, bild_url, produkt_url, "
-        "bewertung, anzahl_bewertungen, verfuegbarkeit, sku, gtin "
-        "FROM produkte WHERE preis IS NOT NULL AND preis > 0 AND preis <= ? "
-        "AND produkt_url != ? "
-        "AND scraped_date = (SELECT MAX(scraped_date) FROM produkte) "
-        "ORDER BY preis DESC LIMIT 30",
-        (aktien_wert / 2, haupt.product_url),
-     ).fetchall()
-     alternativen = []
-     gesehen = {haupt_row["suchbegriff"]}
-     for row in alt_rows:
-        if row["suchbegriff"] not in gesehen:
-            alternativen.append((_map(row), max(2, int(aktien_wert // row["preis"]))))
-            gesehen.add(row["suchbegriff"])
-        if len(alternativen) == 3:
-            break
+        alt_rows = latest_products(
+            con,
+            max_price=aktien_wert / 2,
+            exclude_url=haupt.product_url,
+        )
+        selected_rows = select_diverse_alternatives(alt_rows, haupt_row, limit=3)
+        alternativen = [
+            (_map(row), max(2, int(aktien_wert // row["preis"])))
+            for row in selected_rows
+        ]
 
     mitte_links, mitte_rechts = st.columns([1, 1])
 
@@ -324,6 +347,7 @@ if auswahl:
                 font-weight: 700; font-size: .95rem; line-height: 1.3; height: 2.6em; overflow: hidden;
                 display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
             }}
+            .otto-category {{ color: #777; font-size: .75rem; height: 1.2em; }}
             .otto-offer {{ height: 1.5em; font-size: .85rem; }}
             .otto-old {{ color: #888; text-decoration: line-through; }}
             .otto-badge {{
@@ -358,7 +382,10 @@ if auswahl:
         cols = st.columns(len(alternativen))
         for col, (p, n) in zip(cols, alternativen):
             with col:
-                st.write(f"**{n}x {kurzname(p.title, p.brand)}** ({eur(p.price)} / Stück)")
+                st.write(
+                    f"**{n}x {kurzname(p.title, p.brand)}** "
+                    f"({eur(p.price, p.currency)} / Stück)"
+                )
                 produktkarte(p)
     _params = {"ticker": auswahl, "p0": haupt.product_url}
     for _i, (_p, _n) in enumerate(alternativen[:3], start=1):

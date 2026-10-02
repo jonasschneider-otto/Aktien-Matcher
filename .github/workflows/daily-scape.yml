@@ -21,12 +21,19 @@ jobs:
         run: uv sync
 
       - name: Scrape laufen lassen
+        id: scrape
+        continue-on-error: true
         run: uv run daily_scrape.py
 
       - name: Datenbank zurückschreiben
+        if: ${{ always() && steps.scrape.outcome != 'skipped' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add otto_produkte.db
           git diff --staged --quiet || git commit -m "daily scrape $(date +%F)"
           git push
+
+      - name: Scrape-Fehler melden
+        if: steps.scrape.outcome == 'failure'
+        run: exit 1
